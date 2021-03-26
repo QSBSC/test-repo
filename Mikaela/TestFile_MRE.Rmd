@@ -1,0 +1,17 @@
+---
+title: "Test File"
+author: "Mikaela Elder"
+date: "3/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## QSBSC Minimester Homework 1
+
+```{r}
+print(paste('This is a test file for the QSBSC course test-repo.'))
+```
+
