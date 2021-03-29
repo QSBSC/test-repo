@@ -1,0 +1,46 @@
+#Code ran on 3/26/21 and 3/27/21
+
+#logged into https://ccsb-tempo.som.vanderbilt.edu/jupyterhub
+
+#in home folder made new dir named git-repos
+
+#within git-repos/ I copied the test-repos/ for class from github
+
+/home/qsbsc07/git-repos
+
+git clone https://github.com/QSBSC/test-repo.git
+
+/home/qsbsc07/git-repos/test-repo/Lantana Grub
+
+#then created a test environment
+
+conda create -n test-env
+
+#asked to proceed, selected y
+
+ipython kernel install --user --name=test-env
+
+#then refreshed and opened the new test env
+#this automatically launched a new notebook, that I named Test_Notebook.ipynb
+
+#then checked status of git
+
+git status
+
+#returned that my test notebook and these notes were not saved to git
+#so, add to git
+
+git add .
+
+#check status again
+
+git status
+
+#color changed from red to green
+
+git commit -m "My Jupyter Commit"
+
+git push
+
+
+
