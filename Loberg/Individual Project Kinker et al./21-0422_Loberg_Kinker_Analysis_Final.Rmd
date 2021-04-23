@@ -20,7 +20,7 @@ b. [Reflection: What I Learned](#reflection)
 
 ## Background {#background}
 
-It is well known that tumors are heterogeneous populations of cells. The microenvironment contributes to tumor hetrogeneity, with a variety of immune cells and stromal cells (e.g., fibroblasts) influencing tumor dynamics. However, intratumoral heterogeneity exists between individual tumor cells as well. In this paper, **Kinker et al. hypothesize that intratumor heterogeneity is an inherent characteristic of tumor cells that exists independent of the tumor microenvironment.** Kinker et al. note that the heterogeneity of tumors has been an area of research that has been and continues to be studied in patient samples. These studies allow for identification of intratumoral heterogeneity as well as profiling of the heterogeneity of the microenvironment. To test whether intratumor heterogeneity exists independent of the microenvironment, **Kinker et al. profile the heterogeneity of cancer cell lines using the Cancer Cell Line Encyclopedia (CCLE).** This is novel work, as cell lines have often been thought to be more homogeneous than patient tumor samples. To my understanding and as indicated by Kinker et al., the heterogeneity of cancer cell lines has not previously been studied at the single cell level. By looking for intratumor heterogeneity in tumor cells independent of the microenvironment in an *in vitro* model, Kinker et al. aim to generate a new model for studying the functional consequences of tumor heterogeneity (e.g., resistance to therapy, plasticity, etc.)
+It is well known that tumors are heterogeneous populations of cells. The microenvironment contributes to tumor heterogeneity, with a variety of immune cells and stromal cells (e.g., fibroblasts) influencing tumor dynamics. However, intratumoral heterogeneity exists between individual tumor cells as well. In this paper, **Kinker et al. hypothesize that intratumor heterogeneity is an inherent characteristic of tumor cells that exists independent of the tumor microenvironment.** Kinker et al. note that the heterogeneity of tumors has been an area of research that has been and continues to be studied in patient samples. These studies allow for identification of intratumoral heterogeneity as well as profiling of the heterogeneity of the microenvironment. To test whether intratumor heterogeneity exists independent of the microenvironment, **Kinker et al. profile the heterogeneity of cancer cell lines using the Cancer Cell Line Encyclopedia (CCLE).** This is novel work, as cell lines have often been thought to be more homogeneous than patient tumor samples. To my understanding and as indicated by Kinker et al., the heterogeneity of cancer cell lines has not previously been studied at the single cell level. By looking for intratumor heterogeneity in tumor cells independent of the microenvironment in an *in vitro* model, Kinker et al. aim to generate a new model for studying the functional consequences of tumor heterogeneity (e.g., resistance to therapy, plasticity, etc.)
 
 ## Methods {#methods}
 ### Cancer Color by Category {#cancercolor}
@@ -29,56 +29,6 @@ This function takes the 15 cancer "categories" used by this paper, largely group
 # set a color for each cancer type
 library(RColorBrewer)
 cancer_color <- data.frame("type"=sort(unique(readRDS(file = "/Users/matthewloberg/OneDrive - Vanderbilt/Vanderbilt/MSTP/Cancer Biology/QSBSC/QSBSC_Project/data/CCLE_metadata.RDS") $cancer_type_trunc)), "color"= c(brewer.pal(12, "Set3")[c(1:6,8,7,10:11)], "maroon","gray93", "yellow2", "goldenrod1", "slateblue2"),stringsAsFactors = F)
-```
-
-
-```{r control_genest, include = FALSE, echo = FALSE}
-############# function for getting a control geneset
-
-### ave_tpm = named vector with the average tpm expression of genes in expr
-### program = a character vector with the name of the genes in the program
-### bins = number of bins used to divide ranked genes
-### size = how much bigger is the control suppose to be geneset
-
-### return the normalized program score for each cell line
-
-
-
-control_geneset <- function(ave_tpm, program, bins=50, size=100, seed=1) {
-
-  if(length(which(!is.element(program, names(ave_tpm)))) != 0) stop("Check the genes in the program. Not all of them are found in the expression matrix.")
-
-  ### sorting
-  ave_tpm_sorted <- sort(ave_tpm)
-
-  ### creating a control geneset for the program
-  ## defines 50 bins of gene expression
-  expr_bins <- list()
-  d <- seq(from = 0, to = length(ave_tpm_sorted), length.out = bins+1)
-
-  for(i in 1:bins) {
-    expr_bins[[i]] <- names(ave_tpm_sorted)[(1+d[i]):d[i+1]] 
-  }
-
-
-  ## for each program gene, selects 100 control genes from the correspondent bin 
-  control_geneset <- NULL
-
-  for(i in 1:length(program)) {
-    a <- program[i] # selects a program gene
-    b <- which(unlist(lapply(expr_bins, function(x) is.element(a, x)))) # indentifies the bin of the selected gene
-    if(length(b) != 1) stop("Please, select a different number of bins.")
-    c <- expr_bins[[b]] # selects the desired bin
-    c <- c[c!=a] # prevents the program gene from making into the control geneset
-    set.seed(seed)
-    d <- sample(c, size, replace = T) # samples 100x from the selected bin
-
-    control_geneset <- c(control_geneset,d)
-  }
-  rm(.Random.seed, envir=.GlobalEnv)
-  return(control_geneset)  
-
-}
 ```
 
 ### Custom Magma Color Palette {#custommagma}
@@ -165,36 +115,6 @@ dbscan_programs <- function(cpm, initial_dims=50, perplexity = 35, max_iter=7000
 }
 ```
 
-``` {r dbscan_get_sig, include = FALSE, echo = FALSE}
-# ---------------------------------------------------------------------------------------------
-# Function for generating gene signatures based on the t.test output of "dbscan_programs"
-# --------------------------------------------------------------------------------------------- 
-
-# - dbscan_programs_output = outuput from "dbscan_programs"
-# - cell_line = cell line name
-# - max_genes = maximum number of genes in the signature
-# - p_val = t.test p val cutoff
-# - log2_fc = differential expression fold change cutoff
-# - max_size = maximum percentage of cells in each cluster
-
-
-# Returns a list indicating the cells in each clusters and a dataframe with t.test results comparing gene expression of cell inside vs. outside the respective cluster.
-# If no clusters were identified, returns NA
-
-dbscan_get_sig <- function(dbscan_programs_output, cell_line, max_genes = 50, p_val = 0.001, log2_fc = 1, max_size=0.9) {
-    a <- dbscan_programs_output[["clusters_sig"]]
-    a <- lapply(a, function(x) x[x[,"log2.FC."] >= log2_fc & x[,"ttest_p"] < p_val,])
-    a <- lapply(a, function(x) rownames(x)[order(x[,"log2.FC."], decreasing = T)][1:max_genes])
-    a <- lapply(a, function(x) x[!is.na(x)])
-
-    meta <-  readRDS("CCLE_heterogeneity_Rfiles/CCLE_metadata.RDS")           
-    b <-  dbscan_programs_output[["clusters_cells"]]
-    b <-  sapply(b, function(x) (length(x)/meta[cell_line,"n_cells"]) < max_size)
-
-    return(a[which(b)])             
-}
-```
-
 ### DBSCAN Visualization with t-SNE {#dbscanvisualization}
 t-SNE (t-distributed stochastic neighbor embedding) is a statistical method for analysis of high-dimensional data. Specifically, it allows for visualization in two-dimensional or three-dimensional space. Kinker et al. performed tSNE in conjunction with DBSCAN above in the dbscan_programs function (DBSCAN Heterogeneity Programs methods section) to identify discrete clusters in each CCLE cell line. Here, they are doing the same with the addition of a generated t-SNE plot in two-dimensional space. 
 ``` {r dbscan_tsne_plot, include = TRUE, echo = TRUE}
@@ -267,35 +187,6 @@ dbscan_tsne_plot <- function(cpm, initial_dims=50, perplexity = 35, max_iter=700
   }
 
   return(p1)
-}
-```
-
-``` {r nmf_programs, include = FALSE, echo = FALSE}
-# -------------------------------------------------------------------------------------------
-# Function for getting heterogeneity programs using nonnegative matrix factorization (NMF)
-# ------------------------------------------------------------------------------------------- 
-
-# - cpm = CPM expression matrix (rows = genes, columns = cells)
-# - is.log = indicates if the data is log transformed
-# - rank = NMF factorization rank 
-# - method = NMF algorithm
-
-# Returns a list with NMF program scores for genes and cells
-
-library(NMF)
-
-nmf_programs <- function(cpm, is.log=F, rank, method="snmf/r", seed=1) {
-    
-  if(is.log==F) CP100K_log <- log2((cpm/10) + 1) else CP100K_log <- cpm
-  CP100K_log <- CP100K_log[apply(CP100K_log, 1, function(x) length(which(x > 3.5)) > ncol(CP100K_log)*0.02),]
-  CP100K_log <- CP100K_log - rowMeans(CP100K_log)
-  CP100K_log[CP100K_log < 0] <- 0
- 
-  nmf_programs <- nmf(CP100K_log, rank=rank, method=method, seed=seed)
-  
-  nmf_programs_scores <- list(w_basis=basis(nmf_programs), h_coef=t(coef(nmf_programs)))
-                                 
-  return(nmf_programs_scores)
 }
 ```
 
