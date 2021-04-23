@@ -1,0 +1,353 @@
+---
+title: "Matthew Loberg Kinker Analysis"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Table of Contents
+1. **[Background](#background)**
+2. **[Methods](#methods)**
+a. [Cancer Color by Category](#cancercolor)
+b. [Custom Magma Color Palette](#custommagma)
+c. [DBSCAN Heterogeneity Programs](#dbscanheterogeneity)
+d. [DBSCAN Visualization with t-SNE](#dbscanvisualization)
+e. [Load Data](#loaddata)
+3. **[Results](#results)**
+4. **[Discussion](#discussion)**
+a. [Analysis of Results](#analysis)
+b. [Reflection: What I Learned](#reflection)
+
+## Background {#background}
+
+It is well known that tumors are heterogeneous populations of cells. The microenvironment contributes to tumor hetrogeneity, with a variety of immune cells and stromal cells (e.g., fibroblasts) influencing tumor dynamics. However, intratumoral heterogeneity exists between individual tumor cells as well. In this paper, **Kinker et al. hypothesize that intratumor heterogeneity is an inherent characteristic of tumor cells that exists independent of the tumor microenvironment.** Kinker et al. note that the heterogeneity of tumors has been an area of research that has been and continues to be studied in patient samples. These studies allow for identification of intratumoral heterogeneity as well as profiling of the heterogeneity of the microenvironment. To test whether intratumor heterogeneity exists independent of the microenvironment, **Kinker et al. profile the heterogeneity of cancer cell lines using the Cancer Cell Line Encyclopedia (CCLE).** This is novel work, as cell lines have often been thought to be more homogeneous than patient tumor samples. To my understanding and as indicated by Kinker et al., the heterogeneity of cancer cell lines has not previously been studied at the single cell level. By looking for intratumor heterogeneity in tumor cells independent of the microenvironment in an *in vitro* model, Kinker et al. aim to generate a new model for studying the functional consequences of tumor heterogeneity (e.g., resistance to therapy, plasticity, etc.)
+
+## Methods {#methods}
+### Cancer Color by Category {#cancercolor}
+This function takes the 15 cancer "categories" used by this paper, largely grouped by organ (bladder cancer, brain cancer, breast cancer, colon/colorectal cancer, endometrial/uterine cancer, esophageal cancer, gastric cancer, head and neck cancer, kidney cancer, liver cancer, lung cancer, others, ovarian cancer, pancreatic cancer, skin cancer) and gives them each a unique color using the R package RColorBrewer, which contains ready to use color palettes. 
+```{r cancer_color, include = TRUE, echo = TRUE}
+# set a color for each cancer type
+library(RColorBrewer)
+cancer_color <- data.frame("type"=sort(unique(readRDS(file = "/Users/matthewloberg/OneDrive - Vanderbilt/Vanderbilt/MSTP/Cancer Biology/QSBSC/QSBSC_Project/data/CCLE_metadata.RDS") $cancer_type_trunc)), "color"= c(brewer.pal(12, "Set3")[c(1:6,8,7,10:11)], "maroon","gray93", "yellow2", "goldenrod1", "slateblue2"),stringsAsFactors = F)
+```
+
+
+```{r control_genest, include = FALSE, echo = FALSE}
+############# function for getting a control geneset
+
+### ave_tpm = named vector with the average tpm expression of genes in expr
+### program = a character vector with the name of the genes in the program
+### bins = number of bins used to divide ranked genes
+### size = how much bigger is the control suppose to be geneset
+
+### return the normalized program score for each cell line
+
+
+
+control_geneset <- function(ave_tpm, program, bins=50, size=100, seed=1) {
+
+  if(length(which(!is.element(program, names(ave_tpm)))) != 0) stop("Check the genes in the program. Not all of them are found in the expression matrix.")
+
+  ### sorting
+  ave_tpm_sorted <- sort(ave_tpm)
+
+  ### creating a control geneset for the program
+  ## defines 50 bins of gene expression
+  expr_bins <- list()
+  d <- seq(from = 0, to = length(ave_tpm_sorted), length.out = bins+1)
+
+  for(i in 1:bins) {
+    expr_bins[[i]] <- names(ave_tpm_sorted)[(1+d[i]):d[i+1]] 
+  }
+
+
+  ## for each program gene, selects 100 control genes from the correspondent bin 
+  control_geneset <- NULL
+
+  for(i in 1:length(program)) {
+    a <- program[i] # selects a program gene
+    b <- which(unlist(lapply(expr_bins, function(x) is.element(a, x)))) # indentifies the bin of the selected gene
+    if(length(b) != 1) stop("Please, select a different number of bins.")
+    c <- expr_bins[[b]] # selects the desired bin
+    c <- c[c!=a] # prevents the program gene from making into the control geneset
+    set.seed(seed)
+    d <- sample(c, size, replace = T) # samples 100x from the selected bin
+
+    control_geneset <- c(control_geneset,d)
+  }
+  rm(.Random.seed, envir=.GlobalEnv)
+  return(control_geneset)  
+
+}
+```
+
+### Custom Magma Color Palette {#custommagma}
+This section of code generates a custom magma color palette using the viridis package. 
+
+``` {r custom_magma, include = TRUE, echo = TRUE}
+# Custom color palette
+library(RColorBrewer)
+library(viridisLite)
+library(viridis)
+custom_magma <- c(colorRampPalette(c("white", rev(magma(323, begin = 0.15))[1]))(10), rev(magma(323, begin = 0.18)))
+```
+
+### DBSCAN Heterogeneity Programs {#dbscanheterogeneity}
+This is a function (dbscan_programs) that Kinker et al. use to perform t-Distributed Stochastic Neighbor Embedding) t-SNE and density-based clustering (DBSCAN). These are performed sequentially, with tSNE first and DBSCAN second, to define discrete subpopulations. The input for the dbscan_programs function is expression data from Cancer Cell Line Encyclopedia (CCLE) cell lines generated by scRNA-sequencing. This data is publicly available and can be downloaded from the Broad Institute (https://singlecell.broadinstitute.org/single_cell/study/SCP542/pan-cancer-cell-line-heterogeneity). The CCLE expression data is inputed to this function, and the output of running t-SNE and DBSCAN in combination is a two-dimension visualizable dataset with discrete clusters labeled. 
+
+Using t-SNE has several advantages as a dimension-reduction technique. In particular, t-SNE preserves local and global structures.However, t-SNE is computationally intensive. As a result, this section of code took several hours to run and was difficult to run on the tempo server (hence why I downloaded the data and ran it on my own computer). This could potentially be overcome by using principal component analysis (PCA) and t-SNE in conjunction (PCA for initial dimension reduction and subsequent t-SNE for dimension reduction into two-dimensions) Additionally, t-SNE is non-deterministic, such that different runs may have the exact same parameters but produce slightly different results. Still, these results are very similar and likely to reflect consistent underlying biological processes. 
+``` {r dbscan_programs, include = TRUE, echo = TRUE}
+# ---------------------------------------------------------------------------------------------
+# Function for getting heterogeneity programs using tSNE and density-based clustering (DBSCAN)
+# --------------------------------------------------------------------------------------------- 
+
+# - tpm = CPM expression matrix (rows = genes, columns = cells)
+# - initial_dims = the number of dimensions that should be retained in the initial PCA step of the tSNE algorithm
+# - perplexity = perplexity parameter to be used by the tSNE algorithm (should not be bigger than 3 * perplexity < ncol(cpm) - 1)
+# - max_iter = number of iterations to be used by the tSNE algorithm
+# - eps = size of the epsilon neighborhood to be used by the DBSCAN algorithm
+# - minpts = number of minimum points in the eps region (for core points) to be used by the DBSCAN algorithm
+# - min_size = minimum percentage of cells in each cluster
+# - max_size = maximum percentage of cells in each cluster
+
+
+# Returns a list indicating the cells in each clusters and the expression program of each cluster
+# If no clusters were identified, returns NA
+
+library(Rtsne)
+library(dbscan)
+
+dbscan_programs <- function(cpm, initial_dims=50, perplexity = 35, max_iter=7000, eps = 1.8, minpts=10, min_size= -Inf, max_size = Inf, seed=1) {
+
+  # Processing cpm data
+  CP100K_log <- log2((cpm/10) + 1)
+  CP100K_log <- CP100K_log[apply(CP100K_log, 1, function(x) length(which(x > 3.5)) > ncol(CP100K_log)*0.02),]
+  CP100K_log <- CP100K_log - rowMeans(CP100K_log)
+
+  if(3*perplexity >= ncol(CP100K_log) - 1) {
+    perplexity <- (ncol(CP100K_log) - 2)/3
+    warning(paste("perplexity is too large - using ", (ncol(CP100K_log) - 2)/3, sep = ""))
+  } 
+
+  # Performing tSNE                                       
+  set.seed(seed = seed)
+  tsne <-  Rtsne(t(CP100K_log), dims = 2, pca = T, max_iter = max_iter, perplexity = perplexity, initial_dims = initial_dims)$Y
+  rm(.Random.seed, envir=.GlobalEnv)
+
+  # Perfoming density-based clustering 
+  ds <-  dbscan(tsne, eps = eps, minPts = minpts)$cluster
+
+  # Filtering clusters based on size 
+  clusters <- split(colnames(CP100K_log), as.character(ds))
+  clusters <- clusters[names(clusters)!="0"]
+
+  if(length(clusters) == 0) return(NA) 
+
+  clusters_final <- clusters[sapply(clusters, function(x) length(x) > ncol(CP100K_log)*min_size & length(x) < ncol(CP100K_log)*max_size )] 
+
+  if(length(clusters_final) == 1) return(NA) 
+
+  # Getting differentially expressed genes in each cluster 
+  clusters_sig <- list()
+
+  for(i in names(clusters_final)) {
+    a <- clusters_final[[i]] # gets cells in the cluster
+    if(length(a) > (ncol(CP100K_log)-2)) {
+      clusters_sig[[i]] <- NA
+    } else {
+      fc <- rowMeans(CP100K_log[,is.element(colnames(CP100K_log), a)]) - rowMeans(CP100K_log[,!is.element(colnames(CP100K_log), a)])
+      p <- apply(CP100K_log, 1, function(x) t.test(x[is.element(colnames(CP100K_log), a)], x[!is.element(colnames(CP100K_log), a)])$p.value)
+      clusters_sig[[i]] <- data.frame("log2(FC)" = fc, "ttest_p" =p)
+    }
+  }
+
+  return(list("clusters_cells" = clusters_final, "clusters_sig" = clusters_sig))
+}
+```
+
+``` {r dbscan_get_sig, include = FALSE, echo = FALSE}
+# ---------------------------------------------------------------------------------------------
+# Function for generating gene signatures based on the t.test output of "dbscan_programs"
+# --------------------------------------------------------------------------------------------- 
+
+# - dbscan_programs_output = outuput from "dbscan_programs"
+# - cell_line = cell line name
+# - max_genes = maximum number of genes in the signature
+# - p_val = t.test p val cutoff
+# - log2_fc = differential expression fold change cutoff
+# - max_size = maximum percentage of cells in each cluster
+
+
+# Returns a list indicating the cells in each clusters and a dataframe with t.test results comparing gene expression of cell inside vs. outside the respective cluster.
+# If no clusters were identified, returns NA
+
+dbscan_get_sig <- function(dbscan_programs_output, cell_line, max_genes = 50, p_val = 0.001, log2_fc = 1, max_size=0.9) {
+    a <- dbscan_programs_output[["clusters_sig"]]
+    a <- lapply(a, function(x) x[x[,"log2.FC."] >= log2_fc & x[,"ttest_p"] < p_val,])
+    a <- lapply(a, function(x) rownames(x)[order(x[,"log2.FC."], decreasing = T)][1:max_genes])
+    a <- lapply(a, function(x) x[!is.na(x)])
+
+    meta <-  readRDS("CCLE_heterogeneity_Rfiles/CCLE_metadata.RDS")           
+    b <-  dbscan_programs_output[["clusters_cells"]]
+    b <-  sapply(b, function(x) (length(x)/meta[cell_line,"n_cells"]) < max_size)
+
+    return(a[which(b)])             
+}
+```
+
+### DBSCAN Visualization with t-SNE {#dbscanvisualization}
+t-SNE (t-distributed stochastic neighbor embedding) is a statistical method for analysis of high-dimensional data. Specifically, it allows for visualization in two-dimensional or three-dimensional space. Kinker et al. performed tSNE in conjunction with DBSCAN above in the dbscan_programs function (DBSCAN Heterogeneity Programs methods section) to identify discrete clusters in each CCLE cell line. Here, they are doing the same with the addition of a generated t-SNE plot in two-dimensional space. 
+``` {r dbscan_tsne_plot, include = TRUE, echo = TRUE}
+# --------------------------------------------------
+# Function for vizualizing density-based clustering
+# --------------------------------------------------
+
+# - tpm = CPM expression matrix (rows = genes, columns = cells)
+# - initial_dims = the number of dimensions that should be retained in the initial PCA step of the tSNE algorithm
+# - perplexity = perplexity parameter to be used by the tSNE algorithm (should not be bigger than 3 * perplexity < ncol(cpm) - 1)
+# - max_iter = number of iterations to be used by the tSNE algorithm
+# - eps = size of the epsilon neighborhood to be used by the DBSCAN algorithm
+# - minpts = number of minimum points in the eps region (for core points) to be used by the DBSCAN algorithm
+# - min_size = minimum percentage of cells in each cluster
+# - max_size = maximum percentage of cells in each cluster
+
+
+# Returns a 2D tSNE plot with cells colored according to density-based clustering (DBSCAN)
+
+library(Rtsne)
+library(dbscan)
+library(ggplot2)
+
+dbscan_tsne_plot <- function(cpm, initial_dims=50, perplexity = 35, max_iter=7000, eps = 1.8, minpts=10, min_size= -Inf, max_size = Inf, seed=1, save.plot=FALSE, dir=NULL, plot.title=NULL)
+ {
+
+  ## Processing cpm data
+  CP100K_log <- log2((cpm/10) + 1)
+  CP100K_log <- CP100K_log[apply(CP100K_log, 1, function(x) length(which(x > 3.5)) > ncol(CP100K_log)*0.02),]
+  CP100K_log <- CP100K_log - rowMeans(CP100K_log)
+
+  if(3*perplexity >= ncol(CP100K_log) - 1) {
+    perplexity <- (ncol(CP100K_log) - 2)/3
+    warning(paste("perplexity is too large - using ", (ncol(CP100K_log) - 2)/3, sep = ""))
+  } 
+
+  # Performing tSNE                               
+  set.seed(seed = seed)
+  tsne <-  Rtsne(t(CP100K_log), dims = 2, pca = T, max_iter = max_iter, perplexity = perplexity, initial_dims = initial_dims)$Y
+  rm(.Random.seed, envir=.GlobalEnv)
+
+  # Perfoming density-based clustering 
+  ds <-  dbscan(tsne, eps = eps, minPts = minpts)$cluster
+  ds <- as.character(ds)
+  ds[ds=="0"] <- NA
+
+  # Filtering clusters based on size 
+  size <- table(ds)
+  ds[is.element(ds, names(size)[size > max_size*ncol(CP100K_log) | size < min_size*ncol(CP100K_log)])] <- NA
+
+  # Plotting clusters
+  tsne_plot <- data.frame("tSNE1"= tsne[,1], "tSNE2"=tsne[,2], "clusters"=ds)
+
+  p1 <- ggplot(tsne_plot, aes(x = tSNE1, y = tSNE2, colour = clusters)) + 
+    geom_point(alpha = 0.9, size=2.2) + 
+    theme(panel.background = element_blank(), panel.border=element_rect(fill=F), axis.line = element_blank(),  axis.text = element_text(size=11), axis.title = element_text(size=12),  plot.title = element_text(size = 13), legend.key=element_blank()) +
+    scale_color_brewer(palette = "Set2", name="Discrete\nClusters", na.value = "gray80", breaks=unique(na.omit(tsne_plot$clusters))) +
+    labs(x="tSNE 1", y="tSNE 2", title=plot.title) 
+
+  if(save.plot == TRUE) {  
+    if(is.null(dir))  {
+      pdf(paste0(plot.title, "tsne_clusters.pdf"), width = 3.8, height = 3.2)
+      print(p1)
+      dev.off()   
+    } else {
+        pdf(paste0(dir, "/", plot.title, "tsne_clusters.pdf"), width = 3.8, height = 3.2)
+        print(p1)
+        dev.off()   
+    }
+  }
+
+  return(p1)
+}
+```
+
+``` {r nmf_programs, include = FALSE, echo = FALSE}
+# -------------------------------------------------------------------------------------------
+# Function for getting heterogeneity programs using nonnegative matrix factorization (NMF)
+# ------------------------------------------------------------------------------------------- 
+
+# - cpm = CPM expression matrix (rows = genes, columns = cells)
+# - is.log = indicates if the data is log transformed
+# - rank = NMF factorization rank 
+# - method = NMF algorithm
+
+# Returns a list with NMF program scores for genes and cells
+
+library(NMF)
+
+nmf_programs <- function(cpm, is.log=F, rank, method="snmf/r", seed=1) {
+    
+  if(is.log==F) CP100K_log <- log2((cpm/10) + 1) else CP100K_log <- cpm
+  CP100K_log <- CP100K_log[apply(CP100K_log, 1, function(x) length(which(x > 3.5)) > ncol(CP100K_log)*0.02),]
+  CP100K_log <- CP100K_log - rowMeans(CP100K_log)
+  CP100K_log[CP100K_log < 0] <- 0
+ 
+  nmf_programs <- nmf(CP100K_log, rank=rank, method=method, seed=seed)
+  
+  nmf_programs_scores <- list(w_basis=basis(nmf_programs), h_coef=t(coef(nmf_programs)))
+                                 
+  return(nmf_programs_scores)
+}
+```
+
+### Load Data {#loaddata}
+Here, I am loading the expression data from CCLE cancer cell lines that Kinker et al. used for their code. Specifically, I'm loading it from an RDS file downloaded from the Broad institute. Here is the link where that file can be found: https://singlecell.broadinstitute.org/single_cell/study/SCP542/pan-cancer-cell-line-heterogeneity.
+``` {r Module_1_LoadData, include = TRUE, echo = TRUE}
+# ---------------------------------------------------------------------------------------------------------------
+# Module 1. Identifying discrete and continuous patterns of expression heterogeneity within cell lines and tumors
+# ---------------------------------------------------------------------------------------------------------------
+
+# Module 1 takes several hours to load. Here I will be breaking module 1 into several code chunks starting with loading the data. 
+
+# **************************************************************************
+# Basic setup
+
+# read scRNA-seq data from cell lines and tumors
+expr_ccle <- readRDS("/Users/matthewloberg/OneDrive - Vanderbilt/Vanderbilt/MSTP/Cancer Biology/QSBSC/QSBSC_Project/data/CCLE_scRNAseq_CPM.RDS") # CCLE cell lines
+expr_tumor <- readRDS("/Users/matthewloberg/OneDrive - Vanderbilt/Vanderbilt/MSTP/Cancer Biology/QSBSC/QSBSC_Project/data/tumors_scRNAseq_logTPM.RDS") # human tumors
+
+# ****************************************************************************************** 
+```
+
+## Results {#results}
+Here, Kinker et al. **aim to answer whether discrete supopulations of cells exist within cancer cell lines.** To answer this question, Kinker et al. use the loaded expression data from Cancer Cell Line Encyclopedia (CCLE) cell lines (see Load Data in methods) to run the functions that I defined in the methods section. First, they run the dbscan_programs function (see DBSCAN heterogeneity programs) to generate discrete subpopulations using t-SNE and density-based clustering of each CCLE cell line. Then then visualize their results in two-dimensional space (t-SNE is a dimension reduction technique that allows for two-dimensional visualization of clusters). They use the dbscan_tsne_plot function to perform the t-SNE visualization (see DBSCAN Visualization with t-SNE). Kinker et al. did this for 198 cancer cell lines reflecting 22 different cancer types. I recapitulated graphs for 22 different cancer cell lines from the CCLE. Shown below are the plots for 22 CCLE cell lines that I generated using the dbscan_programs and the dbscan_tsne_plot functions from the code from Kinker et al. The results recapitulate what Kinker et al. showed; the cell lines have a range in terms of the number of discrete clusters that are present. However, I was not able to completely recapitulate the results. Some of the cell lines have more discrete clusters present in my results than they do in the figures published by Kinker et al. 
+
+``` {r module_1_tSNE_dbscan, include = TRUE, echo = TRUE, warning = FALSE, message = FALSE}
+# Identifying heterogeneity programs using tSNE and density-based clustering - cell lines
+# (i.e. discrete heterogeneity) 
+
+# get dbscan clusters
+discr_clusters_minpt5_1.8_ccle <- lapply(expr_ccle, function(x) dbscan_programs(cpm =  x, eps = 1.8, minpts=5, min_size= 0.02))
+discr_clusters_minpt5_1.8_ccle <- discr_clusters_minpt5_1.8_ccle[sapply(discr_clusters_minpt5_1.8_ccle, is.list)]
+
+# save output
+saveRDS(discr_clusters_minpt5_1.8_ccle, "/Users/matthewloberg/OneDrive - Vanderbilt/Vanderbilt/MSTP/Cancer Biology/QSBSC/QSBSC_Project/Output/module1/discr_clusters_minpt5_eps1.8_ccle.RDS")
+
+# tSNE plot showing dbscan clusters
+lapply(names(discr_clusters_minpt5_1.8_ccle), function(x) dbscan_tsne_plot(cpm =  expr_ccle[[x]], eps = 1.8, minpts=5, min_size= 0.02, save.plot = T, dir="/Users/matthewloberg/OneDrive - Vanderbilt/Vanderbilt/MSTP/Cancer Biology/QSBSC/QSBSC_Project/Output/module1", plot.title = x))
+```
+
+## Discussion {#discussion}
+### Analysis of Results {#analysis}
+The question that Kinker et al. were attempting to answer in the graphs that I reproduced is *whether discrete subpopulations exist within cell lines from the cancer cell line encyclopedia (CCLE).* The recapitulated graphs indicate that there are a range in the number of discrete subpopulations within the CCLE cell lines depending on the specific cell line profiled. I found in the 22 cell lines that I made graphs for with t-SNE and DBSCAN that there are as few as 2 discrete subpopulations and as many as 6. In their paper, Kinker et al. indicate that they found some CCLE cell lines with only 1 discrete population. I did not find this in my recapitulated figures. However, I think that this is a result of having only recapitulated graphs for 22 cell lines whereas Kinker et al. profiled over 100 cell lines. Overall, these results are exciting, as they indicate that cancer cell lines may be used as a tool to study intratumor heterogeneity. Specifically, CCLE cell lines can be used to study the role of intratumor heterogeneity in the development of treatment resistance, among other phenotypes that plasticity and heterogeneity influence. Future work should look to study the specific recurrent heterogeneous programs that Kinker et al. identified using mechanistic studies to see if the response to specific targeted therapies can be influenced. 
+
+Aside from analyzing the results, I was able to evaluate the use of GitHub to share data and code by Kinker et al. The module that I worked on (module 1) largely worked without errors. I was able to recapitulate their results without too much trouble. However, the other modules that my group worked on contained sections of broken code that required trouble shooting. This is a good lesson for any future code that I publish--I should make sure that I can download my data and run it through the code that I publish on GitHub, and it should regenerate the same results without errots. Aside from the difficulties in recapitulating the results from Kinker et al., I wish that their code had been better annotated to explain what specific functions were doing and why they were doing. As a novice coder, it was often very difficult for me to understand why they were doing things that they were doing as a result of the lack of annotation on certain functions. This is also a good lesson for any future work that I publish.  
+
+### Reflection: What I Learned {#reflection}
+I came into this class with few computational skills. I downloaded R Studio for the first time in summer 2019 when I rotated in the lab of Dr. Vivian Weiss. It was a 3-week rotation (MSTP student rotations are short). I was able to learn how to write basic lines of code and make several plots in ggplot. 
+
+I signed up for this class because I hope to generate (and analyze) scRNA-sequencing data for my dissertation work profiling the heterogeneity of the tumor microenvironment in thyroid cancer. I know that I am still just beginning to get a grasp of what is possible with computational approaches. However, this class provided me with an appreciation for the ability to learn new techniques and apply them to my own sequencing data based solely on publicly available code published in the literature. I know that mentorship will continue to be essential for my success in my endeavors. Nevertheless, I am confident that through reading papers and accessing code on GitHub, I will be able to work through various approaches to analyze my scRNA-sequencing data. This document, with reproduced figures, is an example of my ability to apply published code to datasets. This is a newfound confidence, and for that I am thankful. In addition to learning that there are publicly available resources to access analysis approaches and apply them to my own work, I learned the power of GitHub and responsible version control. These are exciting skills that I had not previously had exposure to. 
+
+Thanks Bryan and Dr. Tyson for a great class! 
+
+Matthew
+
