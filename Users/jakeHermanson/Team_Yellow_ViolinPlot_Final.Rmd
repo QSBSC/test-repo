@@ -1,0 +1,100 @@
+---
+title: "Team Yellow Violin Plots"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+Group members: Christopher Hansen, Jake Hermanson, Kim Rogge-Obando
+
+![Violin Demo](/Users/jakehermanson/dataScienceClass/violinPlot.png)
+
+Reference: 
+https://www.autodesk.com/research/publications/same-stats-different-graphs
+
+```{r setup}
+#install.packages("vioplot")
+library("vioplot")
+```
+
+# Base function
+
+There are several arguments for vioplot. Please run ?vioplot for more details.
+
+In this script we will be going over these key arguments.
+
+vioplot(x, xlab= ,ylab= ,main=, color= )
+
+
+# Create Violin Plot 
+
+The data we are using is iris.
+
+```{r}
+head(iris)
+```
+
+
+Here we use vioplot to make a violin plot that compares Petal.Length to each Species.
+
+
+```{r}
+vioplot(iris$Petal.Length ~ iris$Species)
+```
+
+# Labeling the graph
+
+```{r}
+vioplot(iris$Petal.Length ~ iris$Species, 
+        xlab= "Species", 
+        ylab= "Petal Length",
+        main= "Petal Length of Different Species")
+```
+
+# Color each violin 
+
+This shows us all the color names we can select in R
+
+```{r}
+colors()
+```
+
+Make a list of the desired colors
+
+```{r}
+color <- c("darkviolet", "cyan", "plum")
+```
+
+Add the color to the vioplot in col=
+
+```{r}
+
+vioplot( iris$Petal.Length ~ iris$Species, 
+         xlab="Species", 
+         ylab= "Petal Length", 
+         col= color, 
+         main= "Petal Length of Different Species")
+```
+
+# Add Jittered Data
+
+Use stripchart to add a set of jittered data
+
+```{r}
+vioplot( iris$Petal.Length ~ iris$Species, 
+         xlab="Species", 
+         ylab= "Petal Length", 
+         col= color,
+         main= "Petal Length of Different Species")
+
+stripchart(iris$Petal.Length ~ iris$Species, method = "jitter", col = "yellow", vertical = TRUE, pch = 19, add = TRUE)
+```
+
+References:
+
+
+https://r-coder.com/violin-plot-r/
+
+https://cran.r-project.org/web/packages/vioplot/vignettes/violin_split.html
+
+
