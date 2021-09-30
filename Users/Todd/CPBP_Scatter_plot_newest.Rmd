@@ -1,0 +1,90 @@
+---
+title: "Scatter_Plot_CPBP_8328"
+author: "Hannah, Harsimran, Elly, Todd"
+date: "9/28/2021"
+output: html_document
+---
+Getting help from R on scatter plots, pulling up the Default Scatterplot Function
+
+```{r echo=T, results="hide"}
+?plot
+  
+```
+
+Tells us:  
+*   How to plot what you want on the X-axis vs the Y-axis: plot(x,y)  
+*   How to make different types scatter plots: "p" for points, "1" for lines, "b" for both points and lines, etc.  
+*   How to have a main title for the plot (main)  
+*   How to have a sub tittle for the plot (sub)  
+*   How to label the x-axis (xlab) and y-axis (ylab)   
+*   How to frame a plot (frame.plot)  
+*   How to change the plot points (pch)  
+*   Plus more!  
+
+Reading the data and creating a subset of first 50 expression values for two genes.
+```{r}
+TamRes_dat <- read.csv("TamRes.csv")
+TamRes_Subset <- TamRes_dat[1:50,1:2]
+```
+
+performing a z-normalization on data to generate a uniform range.
+
+```{r}
+TamRes_Subset$n_SNAIL <- ((TamRes_Subset$SNAIL-mean(TamRes_Subset$SNAIL))/sd(TamRes_Subset$SNAIL))
+TamRes_Subset$n_ZEB1 <- ((TamRes_Subset$ZEB1-mean(TamRes_Subset$ZEB1))/sd(TamRes_Subset$ZEB1))
+                     
+```
+
+Generating scatter plots and coloring the datapoints according to a threshold.
+
+```{r}
+
+plot.new()
+for (i in 1:50) {  # Loops used to denote colors of points in new column of dataset
+  if  (TamRes_Subset$SNAIL[i] < 0 & TamRes_Subset$ZEB1[i] < 0) {  
+    # SNAIL negative, ZEB1 positive points are labeled blue
+    TamRes_Subset$color[i] <- "blue"
+  }
+  if  (TamRes_Subset$SNAIL[i] > 0 & TamRes_Subset$ZEB1[i] < 0) {  
+    # SNAIL positive, ZEB1 negative points are labeled purple
+    TamRes_Subset$color[i] <- "purple"
+  }
+  if  (TamRes_Subset$SNAIL[i] > 0 & TamRes_Subset$ZEB1[i] > 0) {  
+    # SNAIL positive, ZEB1 positive points are labeled red
+    TamRes_Subset$color[i] <- "red"
+  }
+}
+
+plot(TamRes_Subset$n_SNAIL, TamRes_Subset$n_ZEB1,  # The x and y variables to be included in the plot
+     col = TamRes_Subset$color,  # The column denoting which color each dot should be
+     pch = 16,  # The plotting symbols appearing in the legend
+     cex = 1,  # Size of symbol to use, default is 1
+     xlim = c(-3,3),  # Numeric vectors of length 2, giving the x coordinates ranges
+     ylim = c(-2,2),  # Numeric vectors of length 2, giving the y coordinates ranges
+     family = "sans",  # Font family for drawing text, default is ""
+     xlab = "SNAIL",  # Label of x-axis
+     ylab = "ZEB1",  # Label of y-axis
+     main = "ZEB1 vs. SNAIL")  # Title of plot
+
+legend (x, y, legend, col, lty, lwd, bty, bg, box.lwd, box.lty, box.col, cex = 1, pt.cex = cex, pt.lwd = lwd, xjust, yjust, text.col, text.font, horiz = FALSE, title, title.col = text.col, seg.len)
+        x & y # The x and y coordinates to be used to position the legend
+        legend # A vector containing what you want your legend labels to be
+        col # A vector containing the colors corresponding to the legend labels respectively
+        lty & lwd & seg.len #the line type, width and length respectively
+        bty #box type surrounding the legend – options are "o" and "n"
+        bg #is the background color
+        box.lyt & box.lwd & box.col #the border type, line width and color
+        cex #font size
+        text.col & text.font #color and font type
+        horiz #change legend from default vert to horiz  if specified = TRUE
+        title #specifies a title name for the legend
+        pch # Type of point to use
+```
+
+Generating a color gradient based upon gene expression and using ggplot.
+```{r}
+library(ggplot2)
+TamRes_Subset$color2 <- (TamRes_Subset$n_SNAIL-min(TamRes_Subset$n_SNAIL)/(max(TamRes_Subset$n_SNAIL)-min(TamRes_Subset$n_SNAIL)))
+p <- ggplot(TamRes_Subset,aes(x=n_ZEB1,y=n_SNAIL,color=color2))+geom_point()
+p + labs(x = "ZEB1",y = "SNAIL", title ="ZEB1 vs SNAIL expression colored based upon SNAIL", color = "SNAIL")
+```
